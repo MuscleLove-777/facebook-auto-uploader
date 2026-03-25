@@ -1,0 +1,103 @@
+name: Facebook Auto Post
+
+on:
+  schedule:
+    # 毎日3回投稿（JST）
+    # 10:00 JST = 01:00 UTC
+    - cron: '0 1 * * *'
+    # 15:00 JST = 06:00 UTC
+    - cron: '0 6 * * *'
+    # 21:00 JST = 12:00 UTC
+    - cron: '0 12 * * *'
+    # 月1回トークンチェック（1日 00:00 UTC）
+    - cron: '0 0 1 * *'
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    if: github.event.schedule != '0 0 1 * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # --- 投稿（3回リトライ） ---
+      - name: Post to Facebook (attempt 1)
+        id: attempt1
+        continue-on-error: true
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python upload.py
+
+      - name: Wait before retry 1
+        if: steps.attempt1.outcome == 'failure'
+        run: sleep 60
+
+      - name: Post to Facebook (attempt 2)
+        id: attempt2
+        if: steps.attempt1.outcome == 'failure'
+        continue-on-error: true
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python upload.py
+
+      - name: Wait before retry 2
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        run: sleep 120
+
+      - name: Post to Facebook (attempt 3)
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python upload.py
+
+      # --- ログ保存 ---
+      - name: Save upload log
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add uploaded_facebook.json || true
+          git diff --cached --quiet || git commit -m "Update Facebook upload log"
+          git push || true
+
+  refresh-token:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 1 * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Check and refresh token
+        env:
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+        run: python token_refresh.py
