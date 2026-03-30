@@ -2,13 +2,8 @@ name: Facebook Auto Post
 
 on:
   schedule:
-    # 毎日3回投稿（JST）
-    # 10:00 JST = 01:00 UTC
-    - cron: '0 1 * * *'
-    # 15:00 JST = 06:00 UTC
-    - cron: '0 6 * * *'
-    # 21:00 JST = 12:00 UTC
-    - cron: '0 12 * * *'
+    # 毎日 JST 12:00 (UTC 3:00)
+    - cron: '0 3 * * *'
     # 月1回トークンチェック（1日 00:00 UTC）
     - cron: '0 0 1 * *'
   workflow_dispatch:  # 手動実行も可能
