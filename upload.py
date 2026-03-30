@@ -265,15 +265,33 @@ def notify_line(message):
 
 def main():
     # 認証チェック
-    if not FB_PAGE_ID or not FB_PAGE_ACCESS_TOKEN:
-        print("Error: FB_PAGE_ID or FB_PAGE_ACCESS_TOKEN not set")
-        print("Set these environment variables:")
-        print("  FB_PAGE_ID=your_facebook_page_id")
-        print("  FB_PAGE_ACCESS_TOKEN=your_page_access_token")
-        return 1
-
+    missing_secrets = []
+    if not FB_PAGE_ID:
+        missing_secrets.append("FB_PAGE_ID")
+    if not FB_PAGE_ACCESS_TOKEN:
+        missing_secrets.append("FB_PAGE_ACCESS_TOKEN")
     if not GDRIVE_FOLDER_ID:
-        print("Error: GDRIVE_FOLDER_ID_FACEBOOK not set")
+        missing_secrets.append("GDRIVE_FOLDER_ID_FACEBOOK")
+
+    if missing_secrets:
+        print("=" * 60)
+        print("ERROR: 必須シークレットが未設定です")
+        print("=" * 60)
+        print()
+        print("以下のシークレットをGitHub Secretsに設定してください:")
+        print("  リポジトリ → Settings → Secrets and variables → Actions")
+        print("  → New repository secret")
+        print()
+        secret_descriptions = {
+            "FB_PAGE_ID": "FacebookページID（ページ設定 → 透明性 で確認可能）",
+            "FB_PAGE_ACCESS_TOKEN": "ページアクセストークン（Graph API Explorerで取得）",
+            "GDRIVE_FOLDER_ID_FACEBOOK": "Google DriveフォルダID（フォルダURL末尾の文字列）",
+        }
+        for secret in missing_secrets:
+            desc = secret_descriptions.get(secret, "")
+            print(f"  [ ] {secret}: {desc}")
+        print()
+        print("トークン取得手順: https://developers.facebook.com/tools/explorer/")
         return 1
 
     now = datetime.now(JST)

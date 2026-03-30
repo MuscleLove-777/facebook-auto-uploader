@@ -22,6 +22,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # --- シークレット事前チェック ---
+      - name: Check required secrets
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
+        run: |
+          MISSING=""
+          if [ -z "$FB_PAGE_ID" ]; then MISSING="$MISSING FB_PAGE_ID"; fi
+          if [ -z "$FB_PAGE_ACCESS_TOKEN" ]; then MISSING="$MISSING FB_PAGE_ACCESS_TOKEN"; fi
+          if [ -z "$GDRIVE_FOLDER_ID_FACEBOOK" ]; then MISSING="$MISSING GDRIVE_FOLDER_ID_FACEBOOK"; fi
+          if [ -n "$MISSING" ]; then
+            echo "============================================================"
+            echo "ERROR: 必須シークレットが未設定です"
+            echo "============================================================"
+            echo ""
+            echo "未設定:$MISSING"
+            echo ""
+            echo "設定手順: リポジトリ → Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          echo "All required secrets are configured."
+
       # --- 投稿（3回リトライ） ---
       - name: Post to Facebook (attempt 1)
         id: attempt1

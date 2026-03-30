@@ -82,7 +82,17 @@ def get_page_token(user_token, page_id):
 def main():
     token = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
     if not token:
-        print("Error: FB_PAGE_ACCESS_TOKEN not set")
+        print("=" * 60)
+        print("ERROR: FB_PAGE_ACCESS_TOKEN が未設定です")
+        print("=" * 60)
+        print()
+        print("GitHub Secretsに設定してください:")
+        print("  リポジトリ → Settings → Secrets and variables → Actions")
+        print("  → New repository secret")
+        print()
+        print("  [ ] FB_PAGE_ACCESS_TOKEN: ページアクセストークン")
+        print()
+        print("トークン取得手順: https://developers.facebook.com/tools/explorer/")
         return 1
 
     print(f"Checking token... ({datetime.now(JST).strftime('%Y-%m-%d %H:%M JST')})")
@@ -93,8 +103,17 @@ def main():
         app_id = os.environ.get("FB_APP_ID", "")
         app_secret = os.environ.get("FB_APP_SECRET", "")
         if not app_id or not app_secret:
-            print("Error: FB_APP_ID and FB_APP_SECRET required for refresh")
-            print("Set these in GitHub Secrets or environment variables")
+            missing = []
+            if not app_id:
+                missing.append("FB_APP_ID")
+            if not app_secret:
+                missing.append("FB_APP_SECRET")
+            print("ERROR: トークン更新に必要なシークレットが未設定です")
+            print("GitHub Secrets に以下を設定してください:")
+            for m in missing:
+                print(f"  [ ] {m}")
+            print()
+            print("Facebook App設定: https://developers.facebook.com/apps/")
             return 1
         new_token = refresh_token(token)
         print(f"\nNew token (first 20 chars): {new_token[:20]}...")
