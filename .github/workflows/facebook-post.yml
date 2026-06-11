@@ -2,8 +2,9 @@ name: Facebook Auto Post
 
 on:
   schedule:
-    # 毎日 JST 12:00 (UTC 3:00)
+    # 毎日 JST 12:00 (UTC 3:00) / JST 19:00 (UTC 10:00) — 勝ち媒体につき2回/日へ増幅
     - cron: '0 3 * * *'
+    - cron: '0 10 * * *'
     # 月1回トークンチェック（1日 00:00 UTC）
     - cron: '0 0 1 * *'
   workflow_dispatch:  # 手動実行も可能
@@ -56,7 +57,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: python upload.py
@@ -73,7 +73,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: python upload.py
@@ -88,7 +87,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           GDRIVE_FOLDER_ID_FACEBOOK: ${{ secrets.GDRIVE_FOLDER_ID_FACEBOOK }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: python upload.py

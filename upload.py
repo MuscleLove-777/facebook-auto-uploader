@@ -21,7 +21,8 @@ GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID_FACEBOOK", "")
 GRAPH_API_VERSION = "v21.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
-PATREON_LINK = "https://www.patreon.com/cw/MuscleLove"
+PATREON_LINK = "https://www.patreon.com/c/MuscleLove?utm_source=facebook&utm_medium=autopost"
+HUB_LINK = "https://musclelove-777.github.io/?utm_source=facebook&utm_medium=autopost"
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 UPLOADED_LOG = "uploaded_facebook.json"
 
@@ -173,6 +174,8 @@ def build_caption(image_name, tags):
         hashtags=hashtags,
         patreon=PATREON_LINK,
     )
+    # 計測可能なブログ導線を必ず1本入れる（GA4流入計測の生命線）
+    caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
     # NGワードチェック
     for ng in NG_WORDS:
         if ng in caption:
