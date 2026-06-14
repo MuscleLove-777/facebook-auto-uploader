@@ -79,41 +79,21 @@ CAPTION_TEMPLATES = [
 NSFW_KEYWORDS = ['nsfw', 'sexy', 'adult', 'bikini', 'erotic', 'hot', 'エロ']
 
 
+def _load_pool():
+    """content_poolからsafe_fitnessインサイトをロード。失敗時は{}（ハードコードで動く）。"""
+    try:
+        from pool_loader import as_insights
+        return as_insights("safe_fitness", platform="facebook")
+    except Exception as e:
+        print(f"pool_loader unavailable (using hardcoded): {e}")
+        return {}
+
+
 # ===== Google Drive =====
 
 def list_gdrive_images(folder_id):
-    """Google DriveフォルダからAPIで画像一覧を取得"""
-    api_key = os.environ.get("GOOGLE_API_KEY", "")
-    if api_key:
-        return _list_via_api(folder_id, api_key)
-    else:
-        return _list_via_gdown(folder_id)
-
-
-def _list_via_api(folder_id, api_key):
-    """Google Drive API v3で画像一覧を取得"""
-    url = "https://www.googleapis.com/drive/v3/files"
-    query = f"'{folder_id}' in parents and trashed = false"
-    params = {
-        "q": query,
-        "key": api_key,
-        "fields": "files(id,name,mimeType)",
-        "pageSize": 1000,
-    }
-    resp = requests.get(url, params=params)
-    resp.raise_for_status()
-    files = resp.json().get("files", [])
-
-    images = []
-    for f in files:
-        ext = os.path.splitext(f["name"])[1].lower()
-        if ext in IMAGE_EXTENSIONS:
-            images.append({
-                "id": f["id"],
-                "name": f["name"],
-                "url": f"https://drive.google.com/uc?export=download&id={f['id']}",
-            })
-    return images
+    """Google Driveフォルダからgdownで画像一覧を取得（GOOGLE_API_KEY不使用: 憲法第4条）"""
+    return _list_via_gdown(folder_id)
 
 
 def _list_via_gdown(folder_id):
@@ -145,9 +125,12 @@ def _list_via_gdown(folder_id):
 
 # ===== タグ・キャプション生成 =====
 
-def generate_tags(image_name):
+def generate_tags(image_name, pool=None):
     """ファイル名からハッシュタグを生成（Facebookは10個程度が最適）"""
-    tags = list(BASE_TAGS)
+    pool = pool or {}
+    # Pool由来タグを優先、ハードコードBASE_TAGSをフォールバック
+    base = pool.get("recommended_tags", BASE_TAGS)
+    tags = list(base)
     name_lower = image_name.lower().replace('-', ' ').replace('_', ' ')
     matched = set()
     for keyword, keyword_tags in CONTENT_TAG_MAP.items():
@@ -166,21 +149,39 @@ def generate_tags(image_name):
     return unique_tags[:10]
 
 
-def build_caption(image_name, tags):
-    """投稿キャプションを生成"""
+def build_caption(image_name, tags, pool=None):
+    """投稿キャプションを生成（pool優先、ハードコードフォールバック）"""
+    pool = pool or {}
     hashtags = ' '.join([f'#{t}' for t in tags])
-    template = random.choice(CAPTION_TEMPLATES)
-    caption = template.format(
-        hashtags=hashtags,
-        patreon=PATREON_LINK,
-    )
+
+    # テンプレ: pool由来優先、ハードコードフォールバック
+    templates = pool.get("recommended_templates", CAPTION_TEMPLATES)
+    template = random.choice(templates)
+
+    # Pool由来テンプレは{hashtags}のみ、ハードコードは{hashtags}+{patreon}
+    try:
+        caption = template.format(hashtags=hashtags, patreon=PATREON_LINK)
+    except KeyError:
+        caption = template.format(hashtags=hashtags)
+
+    # CTA: pool由来1本を追加（ハブリンクは常に付与）
+    ctas = pool.get("recommended_ctas", [])
+    if ctas:
+        caption += "\n\n" + random.choice(ctas)
+    else:
+        caption += f"\n\nMore on Patreon\n{PATREON_LINK}"
+
     # 計測可能なブログ導線を必ず1本入れる（GA4流入計測の生命線）
     caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
-    # NGワードチェック
-    for ng in NG_WORDS:
-        if ng in caption:
+
+    # NGワードチェック（pool由来NG + ハードコードNG）
+    ng_words = list(pool.get("avoid_tags", [])) + NG_WORDS
+    seen_ng = set()
+    for ng in ng_words:
+        if ng not in seen_ng and ng in caption:
             print(f"NG word detected: {ng}")
             return None
+        seen_ng.add(ng)
     return caption
 
 
@@ -322,24 +323,14 @@ def main():
     image = random.choice(available)
     print(f"Selected: {image['name']}")
 
-    # タグ・キャプション生成
-    tags = generate_tags(image["name"])
+    # content_pool ロード（毎日自動最適化: 憲法第3条）
+    pool = _load_pool()
+    if pool:
+        print(f"Pool loaded: {pool.get('updated_at_jst', '?')}")
 
-    # トレンドタグ追加（trending.pyが存在すれば）
-    try:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'x-auto-uploader'))
-        from trending import get_trending_tags
-        trend_tags = get_trending_tags(max_tags=3)
-        if trend_tags:
-            seen = {t.lower() for t in tags}
-            for t in trend_tags:
-                if t.lower() not in seen:
-                    tags.append(t)
-                    seen.add(t.lower())
-    except ImportError:
-        print("trending.py not found, skipping trend tags")
-
-    caption = build_caption(image["name"], tags)
+    # タグ・キャプション生成（pool優先、ハードコードフォールバック）
+    tags = generate_tags(image["name"], pool)
+    caption = build_caption(image["name"], tags, pool)
     if caption is None:
         print("Caption contains NG words, skipping!")
         return 1
