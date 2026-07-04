@@ -1,8 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Facebook ページ画像自動アップロード（GitHub Actions用）
-Google Driveから画像取得 → ランダム1枚投稿 → アップロード済みを記録
+Facebook ページ 画像/動画 自動アップロード（GitHub Actions用）
+Google Driveから素材取得 → ランダム1つ投稿 → アップロード済みを記録
 Facebook Graph API（公式）使用
+
+Instagram版との違い（こちらが簡単な理由）:
+  Facebookはローカルファイルを直接multipartアップロードできる（公開URL化不要）。
+  画像: /{page_id}/photos に source、動画: graph-video.facebook.com/{page_id}/videos に source。
+  動画はFB側で非同期処理されるが、投稿自体はレスポンス時点で確定するのでpublish待ち不要。
+
+M国憲法「何もしなくても動く完全自動運営」準拠:
+  失敗隔離 / 冪等(uploadedログ) / 鍵不要(gdown) / pool自動最適化フォールバック /
+  発信物に固有名詞を出さない(NGワード二重ガード, 第4条) / Meta安全側(露骨NSFW除外)。
 """
 import sys
 import json
@@ -20,10 +29,12 @@ FB_PAGE_ACCESS_TOKEN = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
 GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID_FACEBOOK", "")
 GRAPH_API_VERSION = "v21.0"
 GRAPH_API_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+GRAPH_VIDEO_BASE = f"https://graph-video.facebook.com/{GRAPH_API_VERSION}"  # 動画アップロード専用ホスト
 
 PATREON_LINK = "https://www.patreon.com/c/MuscleLove?utm_source=facebook&utm_medium=autopost"
 HUB_LINK = "https://musclelove-777.github.io/?utm_source=facebook&utm_medium=autopost"
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
+VIDEO_EXTENSIONS = {'.mp4', '.mov'}  # 非resumableアップロードは1GB/20分まで（GIF工場の短尺なら余裕）
 UPLOADED_LOG = "uploaded_facebook.json"
 
 # --- NGワード（絶対に投稿しない） ---
@@ -75,8 +86,9 @@ CAPTION_TEMPLATES = [
     "美は努力の結晶。\nNo shortcuts.\n\n{hashtags}\n\nMore on Patreon\n{patreon}",
 ]
 
-# NSFWキーワード検出用
-NSFW_KEYWORDS = ['nsfw', 'sexy', 'adult', 'bikini', 'erotic', 'hot', 'エロ']
+# --- 露骨NSFW検出（Metaはヌード/性的表現BAN。ファイル名で疑わしきは投稿しない） ---
+# bikini/フィットネス系はFacebookでは許容されるため、露骨語のみに限定
+NSFW_KEYWORDS = ['nsfw', 'nude', 'naked', 'erotic', 'xxx', 'porn', ' sex', 'エロ', '裸', 'ヌード']
 
 
 def _load_pool():
@@ -91,15 +103,10 @@ def _load_pool():
 
 # ===== Google Drive =====
 
-def list_gdrive_images(folder_id):
-    """Google Driveフォルダからgdownで画像一覧を取得（GOOGLE_API_KEY不使用: 憲法第4条）"""
-    return _list_via_gdown(folder_id)
-
-
-def _list_via_gdown(folder_id):
-    """gdownでフォルダ内ファイル一覧を取得（APIキー不要）"""
+def list_gdrive_media(folder_id):
+    """Google Driveフォルダからgdownで画像/動画をダウンロード（GOOGLE_API_KEY不使用: 憲法第4条）"""
     import gdown
-    dl_dir = "images"
+    dl_dir = "media"
     os.makedirs(dl_dir, exist_ok=True)
     url = f"https://drive.google.com/drive/folders/{folder_id}"
     print(f"Downloading from Google Drive: {url}")
@@ -109,18 +116,17 @@ def _list_via_gdown(folder_id):
         print(f"Download error: {e}")
         return []
 
-    images = []
+    media = []
     for root, dirs, filenames in os.walk(dl_dir):
         for fname in filenames:
             ext = os.path.splitext(fname)[1].lower()
-            if ext in IMAGE_EXTENSIONS:
-                fpath = os.path.join(root, fname)
-                images.append({
-                    "id": None,
+            if ext in IMAGE_EXTENSIONS or ext in VIDEO_EXTENSIONS:
+                media.append({
                     "name": fname,
-                    "local_path": fpath,
+                    "local_path": os.path.join(root, fname),
+                    "kind": "video" if ext in VIDEO_EXTENSIONS else "image",
                 })
-    return images
+    return media
 
 
 # ===== タグ・キャプション生成 =====
@@ -171,8 +177,9 @@ def build_caption(image_name, tags, pool=None):
     else:
         caption += f"\n\nMore on Patreon\n{PATREON_LINK}"
 
-    # 計測可能なブログ導線を必ず1本入れる（GA4流入計測の生命線）
-    caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
+    # 計測可能なブログ導線を必ず1本入れる（GA4流入計測の生命線）。CTA由来で既にあれば重複させない
+    if "musclelove-777.github.io" not in caption:
+        caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
 
     # NGワードチェック（pool由来NG + ハードコードNG）
     ng_words = list(pool.get("avoid_tags", [])) + NG_WORDS
@@ -193,23 +200,6 @@ def is_nsfw(image_name):
 
 # ===== Facebook Graph API =====
 
-def post_photo_by_url(image_url, caption):
-    """画像URLを指定してFacebookページに写真を投稿"""
-    url = f"{GRAPH_API_BASE}/{FB_PAGE_ID}/photos"
-    params = {
-        "url": image_url,
-        "message": caption,
-        "access_token": FB_PAGE_ACCESS_TOKEN,
-    }
-    print("Posting photo to Facebook...")
-    resp = requests.post(url, params=params)
-    resp.raise_for_status()
-    data = resp.json()
-    post_id = data.get("post_id") or data.get("id")
-    print(f"Posted! post_id={post_id}")
-    return post_id
-
-
 def post_photo_by_file(file_path, caption):
     """ローカルファイルをFacebookページにアップロード投稿"""
     url = f"{GRAPH_API_BASE}/{FB_PAGE_ID}/photos"
@@ -220,12 +210,41 @@ def post_photo_by_file(file_path, caption):
     with open(file_path, "rb") as f:
         files = {"source": (os.path.basename(file_path), f, "image/jpeg")}
         print("Uploading photo to Facebook...")
-        resp = requests.post(url, params=params, files=files)
+        resp = requests.post(url, params=params, files=files, timeout=300)
     resp.raise_for_status()
     data = resp.json()
     post_id = data.get("post_id") or data.get("id")
     print(f"Posted! post_id={post_id}")
     return post_id
+
+
+def post_video_by_file(file_path, caption):
+    """ローカル動画をFacebookページにアップロード投稿。
+    動画は graph-video ホスト + description パラメータ（photosのmessageと異なる）。
+    FB側のエンコード処理は非同期だが、投稿はレスポンス時点で確定する。"""
+    url = f"{GRAPH_VIDEO_BASE}/{FB_PAGE_ID}/videos"
+    params = {
+        "description": caption,
+        "access_token": FB_PAGE_ACCESS_TOKEN,
+    }
+    with open(file_path, "rb") as f:
+        files = {"source": (os.path.basename(file_path), f, "video/mp4")}
+        print("Uploading video to Facebook...")
+        resp = requests.post(url, params=params, files=files, timeout=600)
+    resp.raise_for_status()
+    video_id = resp.json().get("id")
+    print(f"Posted! video_id={video_id}")
+    return video_id
+
+
+def verify_auth():
+    """トークン/ページの疎通確認。ページ名を表示（トークン切れの早期検知）。"""
+    url = f"{GRAPH_API_BASE}/{FB_PAGE_ID}"
+    resp = requests.get(url, params={"fields": "name", "access_token": FB_PAGE_ACCESS_TOKEN}, timeout=60)
+    resp.raise_for_status()
+    name = resp.json().get("name", "?")
+    print(f"Auth OK: {name}")
+    return name
 
 
 # ===== アップロードログ管理 =====
@@ -304,24 +323,34 @@ def main():
     print(f"Time: {now.strftime('%Y-%m-%d %H:%M JST')}")
     print()
 
-    # Google Driveから画像一覧取得
-    images = list_gdrive_images(GDRIVE_FOLDER_ID)
-    if not images:
-        print("No images found!")
+    # 認証確認（トークン切れをここで早期検知）
+    try:
+        verify_auth()
+    except requests.exceptions.HTTPError as e:
+        body = e.response.text if e.response is not None else ""
+        print(f"Auth error: {e}\n{body}")
+        notify_line(f"[Facebook] 認証失敗（トークン切れの可能性）\n{now.strftime('%Y-%m-%d %H:%M JST')}")
+        return 1
+
+    # Google Driveから素材一覧取得（画像+動画）
+    media = list_gdrive_media(GDRIVE_FOLDER_ID)
+    if not media:
+        print("No media found!")
         return 0
 
-    # 未アップロード画像をフィルタ
+    # 未アップロードのみ・露骨NSFWは除外（MetaはヌードBAN: 安全側に倒す）
     uploaded_log = load_uploaded_log()
-    available = [img for img in images if img["name"] not in uploaded_log]
+    available = [m for m in media
+                 if m["name"] not in uploaded_log and not is_nsfw(m["name"])]
     if not available:
-        print("All images already uploaded!")
+        print("All media already uploaded (or filtered)!")
         return 0
 
-    print(f"Available: {len(available)} / Total: {len(images)}")
+    print(f"Available: {len(available)} / Total: {len(media)}")
 
-    # ランダムに1枚選択
+    # ランダムに1つ選択
     image = random.choice(available)
-    print(f"Selected: {image['name']}")
+    print(f"Selected: {image['name']} ({image['kind']})")
 
     # content_pool ロード（毎日自動最適化: 憲法第3条）
     pool = _load_pool()
@@ -338,15 +367,12 @@ def main():
     print(f"Tags: {', '.join(tags)}")
     print(f"Caption:\n{caption}\n")
 
-    # Facebook投稿
+    # Facebook投稿（動画は/videos、画像は/photos。どちらもローカル直接アップロード）
     try:
-        if image.get("url"):
-            post_id = post_photo_by_url(image["url"], caption)
-        elif image.get("local_path"):
-            post_id = post_photo_by_file(image["local_path"], caption)
+        if image["kind"] == "video":
+            post_id = post_video_by_file(image["local_path"], caption)
         else:
-            print("Error: No image URL or local path available")
-            return 1
+            post_id = post_photo_by_file(image["local_path"], caption)
 
         if not post_id:
             print("Post failed!")
