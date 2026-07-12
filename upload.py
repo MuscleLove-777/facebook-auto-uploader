@@ -14,12 +14,16 @@ M国憲法「何もしなくても動く完全自動運営」準拠:
   発信物に固有名詞を出さない(NGワード二重ガード, 第4条) / Meta安全側(露骨NSFW除外)。
 """
 import sys
+import argparse
 import json
 import os
 import random
 import time
 from datetime import datetime, timezone, timedelta
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
 
 JST = timezone(timedelta(hours=9))
 
@@ -36,6 +40,7 @@ HUB_LINK = "https://musclelove-777.github.io/?utm_source=facebook&utm_medium=aut
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov'}  # 非resumableアップロードは1GB/20分まで（GIF工場の短尺なら余裕）
 UPLOADED_LOG = "uploaded_facebook.json"
+DRY_RUN_MEDIA_NAME = os.environ.get("FACEBOOK_DRY_RUN_MEDIA_NAME", "training_pose_sample.jpg")
 
 # --- NGワード（絶対に投稿しない） ---
 NG_WORDS = ['アツロウ', 'あつろう', 'atsuro', 'Atsuro', 'ATSURO']
@@ -198,6 +203,65 @@ def is_nsfw(image_name):
     return any(kw in name_lower for kw in NSFW_KEYWORDS)
 
 
+def env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def list_local_media(dl_dir="media"):
+    media = []
+    if not os.path.isdir(dl_dir):
+        return media
+    for root, dirs, filenames in os.walk(dl_dir):
+        for fname in filenames:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in IMAGE_EXTENSIONS or ext in VIDEO_EXTENSIONS:
+                media.append({
+                    "name": fname,
+                    "local_path": os.path.join(root, fname),
+                    "kind": "video" if ext in VIDEO_EXTENSIONS else "image",
+                })
+    return media
+
+
+def choose_dry_run_media(sample_name=None):
+    local = [item for item in list_local_media() if not is_nsfw(item["name"])]
+    if local:
+        return random.choice(local), "local media folder"
+    name = sample_name or DRY_RUN_MEDIA_NAME
+    kind = "video" if os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS else "image"
+    return {"name": name, "local_path": "", "kind": kind}, "synthetic sample"
+
+
+def run_dry_run(sample_name=None):
+    now = datetime.now(JST)
+    image, source = choose_dry_run_media(sample_name)
+    pool = _load_pool()
+    if pool:
+        print(f"Pool loaded: {pool.get('updated_at_jst', '?')}")
+    else:
+        print("Pool unavailable: hardcoded copy will be used.")
+
+    tags = generate_tags(image["name"], pool)
+    caption = build_caption(image["name"], tags, pool)
+    if caption is None:
+        print("Caption contains NG words, dry-run failed.")
+        return 1
+
+    print("Facebook Auto Uploader DRY RUN")
+    print(f"Time: {now.strftime('%Y-%m-%d %H:%M JST')}")
+    print(f"Media source: {source}")
+    print(f"Selected: {image['name']} ({image['kind']})")
+    print(f"Tags: {', '.join(tags)}")
+    print(f"Caption length: {len(caption)}")
+    print("Caption:")
+    print(caption)
+    print("DRY RUN OK: no auth, download, upload, log write, or notification was attempted.")
+    return 0
+
+
 # ===== Facebook Graph API =====
 
 def post_photo_by_file(file_path, caption):
@@ -286,7 +350,19 @@ def notify_line(message):
 
 # ===== メイン =====
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Build a Facebook post preview without auth or upload.")
+    parser.add_argument("--sample-name", default="", help="Synthetic media name for dry-run when no local media exists.")
+    args = parser.parse_args(argv)
+
+    if args.dry_run or env_flag("FACEBOOK_DRY_RUN") or env_flag("DRY_RUN"):
+        return run_dry_run(args.sample_name.strip() or None)
+
+    if requests is None:
+        print("ERROR: requests is required for live Facebook upload. Use --dry-run for local preview.")
+        return 1
+
     # 認証チェック
     missing_secrets = []
     if not FB_PAGE_ID:
