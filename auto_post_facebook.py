@@ -146,7 +146,9 @@ CATEGORY_TAGS = {
 
 
 def build_caption(video_path):
-    """FBはリンクがクリック可能＝CTA(UTM付きURL)を毎回入れる。タグは10個弱。"""
+    """本文にURLは入れない（外部リンク入り投稿はリーチが絞られるため）。
+    CTA(UTM付きURL)は投稿直後の1コメント目に回す → (caption, cta) を返す。
+    タグは10個弱。"""
     ins = as_insights("safe_fitness", platform="facebook")
     templates = ins.get("recommended_templates") or ["今日も積み上げ💪 {hashtags}"]
     tags_all = [t for t in (ins.get("recommended_tags") or []) if t and " " not in t]
@@ -162,12 +164,14 @@ def build_caption(video_path):
     hashtags = " ".join("#" + t for t in dict.fromkeys(picked))
 
     body = tpl.replace("{hashtags}", "").strip()
-    cta = random.choice(ctas) if ctas else ""
-    caption = "\n\n".join(x for x in [body, cta, hashtags] if x)
+    # 1コメント目は必ず導線になるよう、URL入りCTAを優先して選ぶ
+    linked = [c for c in ctas if "http" in c]
+    cta = random.choice(linked or ctas) if ctas else ""
+    caption = "\n\n".join(x for x in [body, hashtags] if x)
     low = caption.lower()
     if any(n in low for n in ng):
         caption = "今日も積み上げ💪\n\n" + hashtags
-    return caption[:4000]
+    return caption[:4000], cta
 
 
 def _cred():
@@ -226,12 +230,31 @@ def post_video_api(video_path, caption):
     return "OK:" + str(vid)
 
 
+def post_first_comment(object_id, message):
+    """投稿直後の1コメント目にCTAリンクを置く（本文に入れるとリーチが落ちるため）。"""
+    _, token = _cred()
+    try:
+        d = requests.post(f"{GRAPH}/{object_id}/comments",
+                          data={"message": message, "access_token": token},
+                          timeout=60).json()
+    except Exception as e:
+        print(f"  コメント投稿に失敗（投稿自体は成功）: {e}")
+        return None
+    if "error" in d:
+        print(f"  コメント投稿に失敗（投稿自体は成功）: {d['error'].get('message')}")
+        return None
+    print(f"  1コメント目にCTA設置: {d.get('id')}")
+    return d.get("id")
+
+
 def _post(video_path, category=""):
-    caption = build_caption(video_path)
+    caption, cta = build_caption(video_path)
     print(f"動画   : {os.path.basename(video_path)}")
     print(f"caption: {caption.replace(chr(10), ' / ')}")
     status = post_video_api(video_path, caption)
     if status.startswith("OK:"):
+        if cta:
+            post_first_comment(status[3:], cta)
         log = load_posted()
         log["files"].append({
             "file": os.path.basename(video_path),
@@ -239,6 +262,7 @@ def _post(video_path, category=""):
             "category": category,
             "video_id": status[3:],
             "caption": caption,
+            "first_comment": cta,
             "uploaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
         save_posted(log)
