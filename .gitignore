@@ -20,3 +20,10 @@ service_account*.json
 *.cookie
 *_cookies.json
 cookies.txt
+
+.env
+.venv/
+facebook_post_log.txt
+__pycache__/
+posted_facebook.json
+facebook_token_log.txt
