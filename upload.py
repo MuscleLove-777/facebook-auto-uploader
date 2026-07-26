@@ -44,6 +44,11 @@ DRY_RUN_MEDIA_NAME = os.environ.get("FACEBOOK_DRY_RUN_MEDIA_NAME", "training_pos
 
 # --- NGワード（絶対に投稿しない） ---
 NG_WORDS = ['アツロウ', 'あつろう', 'atsuro', 'Atsuro', 'ATSURO']
+SAFE_FITNESS_NG_WORDS = [
+    'uncensored', 'sexy', 'nude', 'porn', 'fetish', 'adult', 'nsfw',
+    '18禁', 'エロ', 'アダルト', '無修正', '裸',
+    'フェチ', '腕フェチ', 'ワキフェチ', 'armpit', 'armpitfetish', 'thicc',
+]
 
 # --- タグマッピング ---
 CONTENT_TAG_MAP = {
@@ -157,7 +162,14 @@ def generate_tags(image_name, pool=None):
             seen.add(t.lower())
             unique_tags.append(t)
     # Facebookはハッシュタグ少なめが効果的（10個程度）
-    return unique_tags[:10]
+    avoid = [str(w).lower() for w in list(pool.get("avoid_tags", [])) + SAFE_FITNESS_NG_WORDS]
+    safe_tags = []
+    for tag in unique_tags:
+        low = str(tag).lower()
+        if any(ng and ng in low for ng in avoid):
+            continue
+        safe_tags.append(tag)
+    return safe_tags[:10]
 
 
 def build_caption(image_name, tags, pool=None):
@@ -187,7 +199,7 @@ def build_caption(image_name, tags, pool=None):
         caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
 
     # NGワードチェック（pool由来NG + ハードコードNG）
-    ng_words = list(pool.get("avoid_tags", [])) + NG_WORDS
+    ng_words = list(pool.get("avoid_tags", [])) + SAFE_FITNESS_NG_WORDS + NG_WORDS
     seen_ng = set()
     for ng in ng_words:
         if ng not in seen_ng and ng in caption:
