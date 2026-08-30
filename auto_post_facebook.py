@@ -91,6 +91,8 @@ def load_approved_entries():
     out = []
     for x in d.get("approved", []):
         if isinstance(x, dict) and x.get("path"):
+            if "platforms" in x and "facebook" not in x["platforms"]:
+                continue  # Approval for another platform is not Facebook permission.
             out.append({"path": x["path"], "category": x.get("category", "")})
         elif isinstance(x, str):
             out.append({"path": x, "category": ""})
