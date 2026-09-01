@@ -61,6 +61,11 @@ class FacebookPoolLoaderContractTests(unittest.TestCase):
         self.assertEqual(2, len(insights["recommended_ctas"]))
         self.assertTrue(all("utm_source=facebook" in c for c in insights["recommended_ctas"]))
 
+    def test_upload_sets_utf8_console_for_windows_dry_run(self):
+        source = Path(__file__).with_name("upload.py").read_text(encoding="utf-8")
+        self.assertIn('sys.stdout.reconfigure(encoding="utf-8")', source)
+        self.assertIn('sys.stderr.reconfigure(encoding="utf-8")', source)
+
 
 if __name__ == "__main__":
     unittest.main()

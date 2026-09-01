@@ -17,10 +17,11 @@ auto_post_facebook.py — Facebookページ 無人デイリー投稿（ローカ
   python auto_post_facebook.py --now    # ジッター無し（テスト）
   python auto_post_facebook.py --file <path>
   python auto_post_facebook.py check    # トークン/ページ疎通確認（投稿しない）
+  python auto_post_facebook.py audit-media  # 認証を読まず承認素材だけ照合
 
-exit: 0=成功/正常スキップ, 2=トークン未設定/失効, 1=失敗
+exit: 0=成功/正常スキップ, 2=トークン未設定/失効, 3=承認素材パス不在, 1=失敗
 """
-import os, sys, json, time, random, datetime
+import os, sys, json, time, random, datetime, hashlib
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -28,7 +29,10 @@ try:
 except Exception:
     pass
 
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POSTED_LOG = os.path.join(HERE, "posted_facebook.json")
@@ -56,11 +60,31 @@ def _load_dotenv(path=None):
         pass
 
 
-_load_dotenv()
+_DEFAULT_MEDIA_ROOTS = [
+    r"..\000_エロくないｗ",
+    r"..\youtube-auto-uploader\media",
+]
+APPROVED_LOG = ""
+APPROVED_MEDIA_ROOTS = []
+_MEDIA_CANDIDATE_INDEX = None
 
-APPROVED_LOG = os.path.abspath(os.path.join(
-    HERE, os.environ.get("APPROVED_SFW_PATH",
-                         r"..\tiktok-auto-uploader\approved_sfw.json")))
+
+def _configure_media_paths():
+    global APPROVED_LOG, APPROVED_MEDIA_ROOTS, _MEDIA_CANDIDATE_INDEX
+    APPROVED_LOG = os.path.abspath(os.path.join(
+        HERE, os.environ.get("APPROVED_SFW_PATH",
+                             r"..\tiktok-auto-uploader\approved_sfw.json")))
+    APPROVED_MEDIA_ROOTS = [
+        os.path.abspath(os.path.join(HERE, p.strip()))
+        for p in os.environ.get(
+            "APPROVED_MEDIA_FALLBACK_ROOTS", os.pathsep.join(_DEFAULT_MEDIA_ROOTS)
+        ).split(os.pathsep)
+        if p.strip()
+    ]
+    _MEDIA_CANDIDATE_INDEX = None
+
+
+_configure_media_paths()
 
 
 def _load_json(path, default):
@@ -86,6 +110,57 @@ def _norm(p):
     return os.path.normcase(os.path.abspath(p))
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _media_candidate_index():
+    """Index only explicitly approved Safe Fitness roots; never scan arbitrary folders."""
+    global _MEDIA_CANDIDATE_INDEX
+    if _MEDIA_CANDIDATE_INDEX is not None:
+        return _MEDIA_CANDIDATE_INDEX
+    index = {}
+    for root in APPROVED_MEDIA_ROOTS:
+        if not os.path.isdir(root):
+            continue
+        for current, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for name in files:
+                index.setdefault(name.lower(), []).append(os.path.join(current, name))
+    _MEDIA_CANDIDATE_INDEX = index
+    return index
+
+
+def _resolve_approved_path(meta):
+    """Resolve moved media only when its bytes still match the approval SHA-256."""
+    original = meta.get("path", "")
+    expected = str(meta.get("sha256", "")).strip().lower()
+    candidates = []
+    if original and os.path.isfile(original):
+        candidates.append(original)
+    if original and expected:
+        candidates.extend(_media_candidate_index().get(os.path.basename(original).lower(), []))
+
+    seen = set()
+    for candidate in candidates:
+        normalized = _norm(candidate)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if not expected:
+            return candidate
+        try:
+            if _sha256(candidate).lower() == expected:
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 def load_approved_entries():
     d = _load_json(APPROVED_LOG, {})
     out = []
@@ -93,10 +168,35 @@ def load_approved_entries():
         if isinstance(x, dict) and x.get("path"):
             if "platforms" in x and "facebook" not in x["platforms"]:
                 continue  # Approval for another platform is not Facebook permission.
-            out.append({"path": x["path"], "category": x.get("category", "")})
+            out.append({
+                "path": x["path"],
+                "category": x.get("category", ""),
+                "sha256": x.get("sha256", ""),
+            })
         elif isinstance(x, str):
             out.append({"path": x, "category": ""})
     return out
+
+
+def audit_media():
+    """No-auth dry inspection. It never loads .env, posts, or writes ledgers."""
+    metas = load_approved_entries()
+    resolved = 0
+    relocated = 0
+    missing = 0
+    for meta in metas:
+        path = _resolve_approved_path(meta)
+        if not path:
+            missing += 1
+            continue
+        resolved += 1
+        if _norm(path) != _norm(meta["path"]):
+            relocated += 1
+    print(
+        f"MEDIA_AUDIT approved={len(metas)} resolved={resolved} "
+        f"relocated={relocated} missing={missing}"
+    )
+    return 0 if metas and missing == 0 else 3
 
 
 def pick_video():
@@ -106,26 +206,35 @@ def pick_video():
         return None
     posted = load_posted()
     last_at = {}
+    last_at_by_name = {}
     for e in posted.get("files", []):
         if isinstance(e, dict) and e.get("abspath"):
             n = _norm(e["abspath"])
             at = str(e.get("uploaded_at", ""))
             if n not in last_at or at > last_at[n]:
                 last_at[n] = at
+            basename = os.path.basename(e["abspath"]).lower()
+            if basename not in last_at_by_name or at > last_at_by_name[basename]:
+                last_at_by_name[basename] = at
     fresh, reusable = [], []
+    missing_count = 0
     min_repost_days = int(os.environ.get("FB_MIN_REPOST_DAYS", "14"))
     now = datetime.datetime.now()
     for m in metas:
-        if not os.path.exists(m["path"]):
+        resolved = _resolve_approved_path(m)
+        if not resolved:
+            missing_count += 1
             continue
-        n = _norm(m["path"])
-        if n not in last_at:
-            fresh.append(m)
+        current = dict(m, path=resolved)
+        n = _norm(resolved)
+        at = last_at.get(n) or last_at_by_name.get(os.path.basename(resolved).lower())
+        if not at:
+            fresh.append(current)
             continue
         try:
-            dt = datetime.datetime.strptime(last_at[n], "%Y-%m-%d %H:%M:%S")
+            dt = datetime.datetime.strptime(at, "%Y-%m-%d %H:%M:%S")
             if (now - dt).days >= min_repost_days:
-                reusable.append(dict(m, last=last_at[n]))
+                reusable.append(dict(current, last=at))
         except Exception:
             pass
     if fresh:
@@ -137,6 +246,11 @@ def pick_video():
         chosen = reusable[0]
         print(f"全て投稿済み → 最古を再利用: {os.path.basename(chosen['path'])} (last={chosen.get('last')})")
         return chosen
+    if missing_count:
+        raise FileNotFoundError(
+            f"HOLD_MEDIA: 承認素材{missing_count}/{len(metas)}本のパスが不在。"
+            "投稿可能な素材なし。再投稿間隔待ちとは扱わず、台帳と保管場所の照合が必要"
+        )
     print(f"承認プール{len(metas)}本は全て{min_repost_days}日以内に投稿済み → スキップ")
     return None
 
@@ -183,6 +297,9 @@ def _cred():
 
 
 def check():
+    if requests is None:
+        print("実投稿ランタイムに requests がありません")
+        return 1
     page_id, token = _cred()
     if not page_id or not token:
         print("NEEDS_TOKEN: .env に FB_PAGE_ID / FB_PAGE_ACCESS_TOKEN を設定してください")
@@ -203,6 +320,9 @@ def check():
 
 
 def post_video_api(video_path, caption):
+    if requests is None:
+        print("実投稿ランタイムに requests がありません")
+        return "FAIL"
     page_id, token = _cred()
     if not page_id or not token:
         print("NEEDS_TOKEN: .env に FB_PAGE_ID / FB_PAGE_ACCESS_TOKEN を設定してください")
@@ -261,6 +381,7 @@ def _post(video_path, category=""):
         log["files"].append({
             "file": os.path.basename(video_path),
             "abspath": video_path,
+            "sha256": _sha256(video_path),
             "category": category,
             "video_id": status[3:],
             "caption": caption,
@@ -308,7 +429,11 @@ def run(only_file=None, now=False):
         print(f"ジッター待機 {wait_s // 60}分{wait_s % 60}秒")
         time.sleep(wait_s)
 
-    chosen = pick_video()
+    try:
+        chosen = pick_video()
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 3
     if not chosen:
         return 0
     return _post(chosen["path"], chosen.get("category", ""))
@@ -316,6 +441,10 @@ def run(only_file=None, now=False):
 
 def main():
     args = sys.argv[1:]
+    if args and args[0] == "audit-media":
+        sys.exit(audit_media())
+    _load_dotenv()
+    _configure_media_paths()
     if args and args[0] == "check":
         sys.exit(check())
     only = None

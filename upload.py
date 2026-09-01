@@ -20,6 +20,13 @@ import os
 import random
 import time
 from datetime import datetime, timezone, timedelta
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 try:
     import requests
 except ImportError:
