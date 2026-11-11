@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-11-05 08:00:38 +0900",
-  "version": "20261105",
+  "generated_at": "2026-11-11 09:01:27 +0900",
+  "version": "20261111",
   "rules": {
     "generic_trend_max": 1,
     "hashlike_ban": true,
@@ -56,8 +56,8 @@
       ],
       "trend_tags": [
         "AI",
-        "ダイエット",
-        "美容"
+        "ボディビル",
+        "生成AI"
       ],
       "ng_words": [
         "uncensored",
@@ -104,7 +104,9 @@
             "strongwomen",
             "fitnessmotivation"
           ],
-          "trend_tags": [],
+          "trend_tags": [
+            "ボディビル"
+          ],
           "generic_trend_candidates": [],
           "generic_trend_max": 1,
           "max_hashtags": 7,
@@ -157,7 +159,9 @@
             "strongwomen",
             "fitnessmotivation"
           ],
-          "trend_tags": [],
+          "trend_tags": [
+            "ボディビル"
+          ],
           "generic_trend_candidates": [],
           "generic_trend_max": 1,
           "max_hashtags": 3,
@@ -186,7 +190,9 @@
             "strongwomen",
             "fitnessmotivation"
           ],
-          "trend_tags": [],
+          "trend_tags": [
+            "ボディビル"
+          ],
           "generic_trend_candidates": [],
           "generic_trend_max": 1,
           "max_hashtags": 3,
@@ -215,7 +221,9 @@
             "strongwomen",
             "fitnessmotivation"
           ],
-          "trend_tags": [],
+          "trend_tags": [
+            "ボディビル"
+          ],
           "generic_trend_candidates": [],
           "generic_trend_max": 1,
           "max_hashtags": 3,
@@ -263,8 +271,8 @@
       ],
       "trend_tags": [
         "AI",
-        "ダイエット",
-        "美容"
+        "ボディビル",
+        "生成AI"
       ],
       "ng_words": [
         "porn",
@@ -310,8 +318,8 @@
       ],
       "trend_tags": [
         "AI",
-        "ダイエット",
-        "美容"
+        "ボディビル",
+        "生成AI"
       ],
       "ng_words": [],
       "caption_templates": [
@@ -336,11 +344,6 @@
     }
   },
   "platform_focus": {
-    "tumblr": {
-      "lane": "mature_muscle",
-      "action": "observe_data",
-      "cadence_hint": "verify_measurement_before_reallocation"
-    },
     "facebook": {
       "lane": "safe_fitness",
       "action": "observe_data",
@@ -413,6 +416,11 @@
     },
     "threads": {
       "lane": "safe_fitness",
+      "action": "observe_data",
+      "cadence_hint": "verify_measurement_before_reallocation"
+    },
+    "tumblr": {
+      "lane": "mature_muscle",
       "action": "observe_data",
       "cadence_hint": "verify_measurement_before_reallocation"
     },
@@ -511,9 +519,9 @@
     }
   },
   "revenue_mix": {
-    "status": "RECORDED_ONLY",
-    "has_actual": false,
+    "status": "HOLD",
+    "has_actual": null,
     "share_pct": {},
-    "note": "金額は非公開。記録済み台帳の構成比のみ。全販路の売上確定や増枠許可ではない。"
+    "note": "売上内訳は未確認。注力先や増枠の根拠にしない。金額は非公開。"
   }
 }
