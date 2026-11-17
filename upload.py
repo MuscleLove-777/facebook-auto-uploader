@@ -13,6 +13,8 @@ M国憲法「何もしなくても動く完全自動運営」準拠:
   失敗隔離 / 冪等(uploadedログ) / 鍵不要(gdown) / pool自動最適化フォールバック /
   発信物に固有名詞を出さない(NGワード二重ガード, 第4条) / Meta安全側(露骨NSFW除外)。
 """
+from publication_evidence import record_publication_result, identity_from_url
+from promotion_policy import CANONICAL_URL, canonical_cta, strip_plain_promotion, normalize_plain_promotion, normalize_html_promotion
 import sys
 import argparse
 import json
@@ -204,6 +206,8 @@ def build_caption(image_name, tags, pool=None):
     # 計測可能なブログ導線を必ず1本入れる（GA4流入計測の生命線）。CTA由来で既にあれば重複させない
     if "musclelove-777.github.io" not in caption:
         caption += f"\n\nAll sites & gallery hub\n{HUB_LINK}"
+
+    caption = normalize_plain_promotion(caption, max_length=63206)
 
     # NGワードチェック（pool由来NG + ハードコードNG）
     ng_words = list(pool.get("avoid_tags", [])) + SAFE_FITNESS_NG_WORDS + NG_WORDS
@@ -475,6 +479,7 @@ def main(argv=None):
             return 1
 
         # 成功 → ログ保存
+        record_publication_result("facebook", {"caption": caption}, post_id=post_id, confirmed=True)
         uploaded_log.append(image["name"])
         save_uploaded_log(uploaded_log)
         remaining = len(available) - 1

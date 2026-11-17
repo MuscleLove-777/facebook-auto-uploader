@@ -88,9 +88,17 @@ class MediaPoolOutcomeTests(unittest.TestCase):
 
     def test_hidden_wrapper_preserves_synchronous_child_exit(self):
         wrapper = Path(__file__).with_name("run_hidden.vbs").read_text(encoding="utf-8")
-        self.assertIn('exitCode = CreateObject("WScript.Shell").Run ', wrapper)
-        self.assertIn(', 0, True', wrapper)
+        self.assertIn('exitCode = shell.Run(', wrapper)
+        self.assertIn(', 0, True)', wrapper)
         self.assertIn('WScript.Quit exitCode', wrapper)
+        self.assertIn('wrapper_status.log', wrapper)
+        self.assertIn('wrapper_error=', wrapper)
+        self.assertIn('child_exit=', wrapper)
+
+    def test_scheduled_junction_resolves_sibling_media_from_real_path(self):
+        source = Path(__file__).with_name("auto_post_facebook.py").read_text(encoding="utf-8")
+        self.assertIn("media_base = os.path.realpath(HERE)", source)
+        self.assertIn("os.path.join(media_base, p.strip())", source)
 
 
 if __name__ == "__main__":
