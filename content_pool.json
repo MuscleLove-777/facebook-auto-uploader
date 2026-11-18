@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-11-17 08:05:20 +0900",
-  "version": "20261117",
+  "generated_at": "2026-11-19 08:01:39 +0900",
+  "version": "20261119",
   "rules": {
     "generic_trend_max": 1,
     "hashlike_ban": true,
@@ -55,7 +55,8 @@
         "AIアート"
       ],
       "trend_tags": [
-        "AI"
+        "AI",
+        "姿勢"
       ],
       "ng_words": [
         "uncensored",
@@ -260,7 +261,8 @@
         "AIイラスト"
       ],
       "trend_tags": [
-        "AI"
+        "AI",
+        "姿勢"
       ],
       "ng_words": [
         "porn",
@@ -305,7 +307,8 @@
         "AI美女"
       ],
       "trend_tags": [
-        "AI"
+        "AI",
+        "姿勢"
       ],
       "ng_words": [],
       "caption_templates": [
@@ -330,12 +333,12 @@
     }
   },
   "platform_focus": {
-    "ameblo": {
+    "facebook": {
       "lane": "safe_fitness",
       "action": "observe_data",
       "cadence_hint": "verify_measurement_before_reallocation"
     },
-    "facebook": {
+    "ameblo": {
       "lane": "safe_fitness",
       "action": "observe_data",
       "cadence_hint": "verify_measurement_before_reallocation"
